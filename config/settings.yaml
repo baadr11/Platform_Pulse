@@ -1,0 +1,158 @@
+project:
+  name: "نبض المنصات | Platform Pulse"
+  description: "مرصد ذكي لرصد القوى العاملة في اقتصاد المنصات"
+  language: "ar"
+
+database:
+  path: "data/platform_pulse.db"
+  echo: false
+
+apps:
+  google_play:
+    - id: "com.ubercab"
+      name: "Uber"
+      sector: "نقل"
+    - id: "com.careem.acma"
+      name: "Careem"
+      sector: "نقل"
+    - id: "com.hungerstation.android"
+      name: "HungerStation"
+      sector: "توصيل"
+    - id: "com.Jahez.android"
+      name: "Jahez"
+      sector: "توصيل"
+    - id: "com.mrsool.android"
+      name: "Mrsool"
+      sector: "توصيل"
+    - id: "com.toyou.driver"
+      name: "ToYou"
+      sector: "توصيل"
+    - id: "com.sary"
+      name: "Sary"
+      sector: "عمل_حر"
+    - id: "com.nana.direct"
+      name: "Nana"
+      sector: "عمل_حر"
+  app_store:
+    - id: "368677368"
+      name: "Uber"
+      sector: "نقل"
+    - id: "809232916"
+      name: "Careem"
+      sector: "نقل"
+    - id: "881845692"
+      name: "HungerStation"
+      sector: "توصيل"
+    - id: "1534040600"
+      name: "Jahez"
+      sector: "توصيل"
+    - id: "1475004013"
+      name: "Mrsool"
+      sector: "توصيل"
+
+trends:
+  geo: "SA"
+  timeframe: "today 12-m"
+  keywords_ar:
+    - "وظائف توصيل"
+    - "تسجيل كريم كابتن"
+    - "العمل في مرسول"
+    - "سائق أوبر"
+    - "توصيل طلبات"
+  keywords_en:
+    - "careem driver registration"
+    - "uber driver saudi"
+    - "delivery job riyadh"
+
+cities:
+  - name_ar: "الرياض"
+    name_en: "Riyadh"
+    lat: 24.7136
+    lon: 46.6753
+  - name_ar: "جدة"
+    name_en: "Jeddah"
+    lat: 21.5433
+    lon: 39.1728
+  - name_ar: "مكة المكرمة"
+    name_en: "Mecca"
+    lat: 21.3891
+    lon: 39.8579
+  - name_ar: "المدينة المنورة"
+    name_en: "Medina"
+    lat: 24.5247
+    lon: 39.5692
+  - name_ar: "الدمام"
+    name_en: "Dammam"
+    lat: 26.4207
+    lon: 50.0888
+  - name_ar: "الخبر"
+    name_en: "Khobar"
+    lat: 26.2172
+    lon: 50.1971
+  - name_ar: "أبها"
+    name_en: "Abha"
+    lat: 18.2164
+    lon: 42.5053
+  - name_ar: "تبوك"
+    name_en: "Tabuk"
+    lat: 28.3998
+    lon: 36.5715
+  - name_ar: "الطائف"
+    name_en: "Taif"
+    lat: 21.2854
+    lon: 40.4149
+  - name_ar: "بريدة"
+    name_en: "Buraidah"
+    lat: 26.3260
+    lon: 43.9750
+  - name_ar: "حائل"
+    name_en: "Hail"
+    lat: 27.5219
+    lon: 41.7057
+  - name_ar: "نجران"
+    name_en: "Najran"
+    lat: 17.5656
+    lon: 44.2289
+  - name_ar: "جازان"
+    name_en: "Jazan"
+    lat: 16.8892
+    lon: 42.5511
+
+models:
+  sentiment:
+    model_name: "CAMeL-Lab/bert-base-arabic-camelbert-da-sentiment"
+    fallback: true
+    batch_size: 16
+  prophet:
+    forecast_periods: 90
+    confidence_intervals: [0.80, 0.95]
+    seasonality_mode: "multiplicative"
+  dbscan:
+    eps: 2.0
+    min_samples: 2
+  isolation_forest:
+    contamination: 0.1
+    random_state: 42
+  elasticnet:
+    cv: 5
+    l1_ratio: [0.1, 0.5, 0.9]
+    max_iter: 5000
+    fallback: inverse_variance
+  bootstrap:
+    n_samples: 1000
+    confidence: 0.95
+
+dashboard:
+  port: 8501
+  theme: "rtl"
+  refresh_interval: 3600
+
+scheduler:
+  interval_hours: 24
+
+paths:
+  raw: "data/raw"
+  processed: "data/processed"
+  sample: "data/sample"
+  database: "data/platform_pulse.db"
+  logs: "data/logs"
