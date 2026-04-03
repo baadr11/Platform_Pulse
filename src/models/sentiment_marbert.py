@@ -34,7 +34,7 @@ _model_status: str = "unloaded"
 def get_model_status() -> str:
     return _model_status
 
-
+@st.cache_resource
 def load_marbert():
     global _model, _tokenizer
 
