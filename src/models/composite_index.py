@@ -44,12 +44,7 @@ logger = logging.getLogger(__name__)
 #    قوة العمل = 27,357,500 × 66.4% = 18,165,380 ≈ 18,165,000
 #
 #  📌 هذا الرقم مشتق وموثق المصدر، وليس منشوراً مباشرةً في جدول واحد.
-#     يُنصح بمراجعة قاعدة البيانات الإحصائية على:
-#     database.stats.gov.sa/beta/dashboard/landing
-#     للحصول على الرقم المنشور مباشرةً إن توفّر لاحقاً.
-# ══════════════════════════════════════════════════════════════════
 
-# ── المصدر 1: التقديرات السكانية GASTAT 2024 ──────────────────────
 _TOTAL_POP_2024  = 35_300_000        # إجمالي سكان المملكة 2024
 _PCT_15_64       = 0.747             # الفئة 15-64 سنة = 74.7% من الإجمالي
 _PCT_65_PLUS     = 0.028             # الفئة 65+ سنة   =  2.8% من الإجمالي
@@ -266,7 +261,7 @@ def compute_weights_elasticnet(components: dict) -> dict:
         min_len = min(len(s) for s in score_series)
         min_len = max(min_len, 2)
 
-        if min_len < 6:
+        if min_len < 12:
             logger.warning(
                 "Insufficient observations for ElasticNetCV (min_len=%d < 6) — "
                 "using IVW fallback directly", min_len,
