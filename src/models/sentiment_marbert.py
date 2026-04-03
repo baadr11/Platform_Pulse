@@ -70,7 +70,6 @@ def load_marbert():
                 _model = AutoModelForSequenceClassification.from_pretrained(
                     model_name,
                     low_cpu_mem_usage=False,
-                    device_map="cpu",
                 )
                 _model = _model.to(torch.device("cpu"))
                 _model.eval()
