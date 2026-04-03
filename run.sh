@@ -19,7 +19,7 @@ python -m src.processing.validator
 echo ""
 
 echo "[3/4] Running analytical models..."
-python -m run_models
+python run_models.py
 echo ""
 
 echo "[4/4] Starting dashboard..."
