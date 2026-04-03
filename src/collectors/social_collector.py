@@ -11,8 +11,17 @@ from typing import List, Dict, Any, Optional
 import pandas as pd
 
 try:
+    from src.models.sentiment_marbert import analyze_with_arabic_sentiment as _marbert_analyze
+except Exception:
+    _marbert_analyze = None
+
+try:
+    from ntscraper import Nitter as _Nitter
+except ImportError:
+    _Nitter = None
+
+try:
     from dotenv import load_dotenv
-    # load from project root (.env) explicitly, works regardless of cwd
     _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     _ENV_FILE = os.path.join(_PROJECT_ROOT, ".env")
     load_dotenv(dotenv_path=_ENV_FILE, override=False)
@@ -22,8 +31,6 @@ except ImportError:
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 logger = logging.getLogger(__name__)
-
-TELEGRAM_SESSION_NAME: str = "platform_pulse_session"
 
 CHANNEL_SECTOR_MAP: Dict[str, str] = {
     "CreemUber": "نقل",
@@ -48,49 +55,33 @@ HASHTAG_SECTOR_MAP: Dict[str, str] = {
 }
 
 LOOKBACK_DAYS: int = 30
-MAX_MESSAGES_PER_CHANNEL: int = 200
 MAX_TWEETS_PER_HASHTAG: int = 100
 CHANNEL_DELAY_SEC: float = 2.0
+TELEGRAM_SAFETY_LIMIT: int = 2000
 
 OUTPUT_PATH: str = os.path.join("data", "raw", "social_raw.csv")
 
 
 def _load_session_string() -> str:
-    """
-    يقرأ SESSION_STRING بالأولوية التالية:
-      1. متغير البيئة TELEGRAM_SESSION_STRING
-      2. Streamlit secrets
-      3. ملف data/raw/string_session.txt
-    """
-    # 1. env var
     session = os.getenv("TELEGRAM_SESSION_STRING", "").strip()
     if session:
-        logger.info("Session loaded from env var TELEGRAM_SESSION_STRING")
         return session
-
-    # 2. Streamlit secrets
     try:
         import streamlit as _st
         session = (_st.secrets.get("TELEGRAM_SESSION_STRING") or "").strip()
         if session:
-            logger.info("Session loaded from Streamlit secrets")
             return session
     except Exception:
         pass
-
-    # 3. ملف string_session.txt
     session_file = os.path.join("data", "raw", "string_session.txt")
     if os.path.exists(session_file):
         try:
             with open(session_file, "r", encoding="utf-8") as f:
                 session = f.read().strip()
             if session:
-                logger.info("Session loaded from file: %s", session_file)
                 return session
         except Exception as e:
             logger.warning("Failed to read session file %s: %s", session_file, e)
-
-    logger.warning("No TELEGRAM_SESSION_STRING found in env, secrets, or file")
     return ""
 
 
@@ -99,14 +90,14 @@ async def _collect_telegram_channel(
     channel_username: str,
     sector: str,
     since: datetime,
-    max_messages: int,
 ) -> List[Dict[str, Any]]:
     records: List[Dict[str, Any]] = []
+    cutoff = since.replace(tzinfo=timezone.utc)
     try:
         entity = await client.get_entity(channel_username)
         async for message in client.iter_messages(
             entity,
-            limit=max_messages,
+            limit=TELEGRAM_SAFETY_LIMIT,
             offset_date=datetime.now(tz=timezone.utc),
             reverse=False,
         ):
@@ -115,7 +106,7 @@ async def _collect_telegram_channel(
             msg_date = message.date
             if msg_date.tzinfo is None:
                 msg_date = msg_date.replace(tzinfo=timezone.utc)
-            if msg_date < since.replace(tzinfo=timezone.utc):
+            if msg_date < cutoff:
                 break
             if not message.text:
                 continue
@@ -127,7 +118,7 @@ async def _collect_telegram_channel(
                 "date": msg_date.strftime("%Y-%m-%d"),
                 "message_id": str(message.id),
             })
-        logger.info("Telegram channel %s (%s): %d messages", channel_username, sector, len(records))
+        logger.info("Telegram %s (%s): %d messages", channel_username, sector, len(records))
     except Exception as exc:
         logger.warning("Telegram channel %s failed: %s", channel_username, exc)
     return records
@@ -140,38 +131,30 @@ async def collect_telegram(
 ) -> List[Dict[str, Any]]:
     try:
         from telethon import TelegramClient
+        from telethon.sessions import StringSession
     except ImportError:
-        logger.error("telethon is not installed — run: pip install telethon")
+        logger.error("telethon not installed")
         return []
 
     if not api_id or not api_hash:
-        logger.error("Telegram credentials missing — skipping Telegram collection")
+        logger.error("Telegram credentials missing")
+        return []
+
+    session_string = _load_session_string()
+    if not session_string:
+        logger.error("No TELEGRAM_SESSION_STRING found — skipping Telegram collection")
         return []
 
     if since is None:
         since = datetime.now(tz=timezone.utc) - timedelta(days=LOOKBACK_DAYS)
 
     all_records: List[Dict[str, Any]] = []
-
-    # --- تحميل session_string ---
-    session_string = _load_session_string()
-
-    if session_string:
-        from telethon.sessions import StringSession
-        _session = StringSession(session_string)
-    else:
-        session_path = os.path.join("data", "raw", TELEGRAM_SESSION_NAME)
-        os.makedirs(os.path.dirname(session_path), exist_ok=True)
-        _session = session_path
-
-    client = TelegramClient(_session, api_id, api_hash)
+    client = TelegramClient(StringSession(session_string), api_id, api_hash)
     try:
         await client.start()
         for channel, sector in CHANNEL_SECTOR_MAP.items():
             try:
-                records = await _collect_telegram_channel(
-                    client, channel, sector, since, MAX_MESSAGES_PER_CHANNEL
-                )
+                records = await _collect_telegram_channel(client, channel, sector, since)
                 all_records.extend(records)
             except Exception as exc:
                 if "FloodWait" in type(exc).__name__:
@@ -184,91 +167,115 @@ async def collect_telegram(
     finally:
         await client.disconnect()
 
-    logger.info("Telegram total: %d messages across all channels", len(all_records))
+    logger.info("Telegram total: %d messages", len(all_records))
     return all_records
 
 
 def collect_twitter(since: Optional[datetime] = None) -> List[Dict[str, Any]]:
     SAMPLE_PATH = os.path.join("data", "sample", "twitter_sample.csv")
-    _twitter_fallback_active = False
-
-    try:
-        from ntscraper import Nitter
-    except ImportError:
-        logger.warning("ntscraper not installed — loading cached Twitter data")
-        _twitter_fallback_active = True
 
     if since is None:
         since = datetime.now() - timedelta(days=LOOKBACK_DAYS)
 
-    all_records: List[Dict[str, Any]] = []
-
-    if not _twitter_fallback_active:
+    cached_records: List[Dict[str, Any]] = []
+    if os.path.exists(SAMPLE_PATH):
         try:
-            scraper = Nitter(log_level=1, skip_instance_check=False)
-            since_str = since.strftime("%Y-%m-%d")
-            for hashtag in TWITTER_HASHTAGS:
-                sector = HASHTAG_SECTOR_MAP.get(hashtag, "عام")
-                query = hashtag.lstrip("#")
-                try:
-                    results = scraper.get_tweets(
-                        query, mode="hashtag", number=MAX_TWEETS_PER_HASHTAG, since=since_str,
-                    )
-                    tweets = results.get("tweets", []) if isinstance(results, dict) else []
-                    for tweet in tweets:
-                        try:
-                            text = tweet.get("text", "")
-                            if not text:
-                                continue
-                            date_raw = tweet.get("date", "")
-                            try:
-                                parsed_date = pd.to_datetime(date_raw, dayfirst=False, errors="coerce")
-                                date_str = parsed_date.strftime("%Y-%m-%d") if pd.notna(parsed_date) else str(since.date())
-                            except Exception:
-                                date_str = str(since.date())
-                            all_records.append({
-                                "platform": "Twitter/X",
-                                "channel_or_tag": hashtag,
-                                "sector": sector,
-                                "text": text,
-                                "date": date_str,
-                                "message_id": tweet.get("tweet_id", ""),
-                            })
-                        except Exception:
-                            continue
-                    logger.info("Twitter hashtag %s: %d tweets", hashtag, len(tweets))
-                except Exception as exc:
-                    logger.warning("Twitter hashtag %s failed: %s", hashtag, exc)
-                time.sleep(3)
+            sample_df = pd.read_csv(SAMPLE_PATH, parse_dates=["date"])
+            cached_records = sample_df.to_dict("records")
+            for r in cached_records:
+                r["_cached"] = True
+            logger.info("Twitter cached baseline: %d records", len(cached_records))
         except Exception as e:
-            logger.warning("Twitter live scrape failed: %s — loading cached data", e)
-            _twitter_fallback_active = True
+            logger.warning("Twitter cached load failed: %s", e)
 
-    if _twitter_fallback_active or not all_records:
-        if os.path.exists(SAMPLE_PATH):
+    if _Nitter is None:
+        logger.warning("ntscraper not installed — using cached Twitter data only")
+        return cached_records
+
+    live_records: List[Dict[str, Any]] = []
+    try:
+        scraper = _Nitter(log_level=1, skip_instance_check=False)
+        since_str = since.strftime("%Y-%m-%d")
+        for hashtag in TWITTER_HASHTAGS:
+            sector = HASHTAG_SECTOR_MAP.get(hashtag, "عام")
+            query = hashtag.lstrip("#")
             try:
-                sample_df = pd.read_csv(SAMPLE_PATH, parse_dates=["date"])
-                logger.info("Twitter loaded %d cached records", len(sample_df))
-                all_records = sample_df.to_dict("records")
-                for r in all_records:
-                    r["_cached"] = True
-            except Exception as e2:
-                logger.warning("Twitter cached fallback also failed: %s", e2)
+                results = scraper.get_tweets(
+                    query, mode="hashtag", number=MAX_TWEETS_PER_HASHTAG, since=since_str,
+                )
+                tweets = results.get("tweets", []) if isinstance(results, dict) else []
+                for tweet in tweets:
+                    try:
+                        text = tweet.get("text", "")
+                        if not text:
+                            continue
+                        date_raw = tweet.get("date", "")
+                        parsed_date = pd.to_datetime(date_raw, dayfirst=False, errors="coerce")
+                        date_str = parsed_date.strftime("%Y-%m-%d") if pd.notna(parsed_date) else str(since.date())
+                        live_records.append({
+                            "platform": "Twitter/X",
+                            "channel_or_tag": hashtag,
+                            "sector": sector,
+                            "text": text,
+                            "date": date_str,
+                            "message_id": tweet.get("tweet_id", ""),
+                        })
+                    except Exception:
+                        continue
+                logger.info("Twitter live %s: %d tweets", hashtag, len(tweets))
+            except Exception as exc:
+                logger.warning("Twitter hashtag %s failed: %s", hashtag, exc)
+            time.sleep(3)
+    except Exception as e:
+        logger.warning("Twitter live scrape failed: %s — using cached data", e)
+        return cached_records
 
-    return all_records
+    return live_records if live_records else cached_records
 
 
 def _is_valid_telegram_id(raw_id) -> bool:
     if raw_id is None:
         return False
-    raw_id = str(raw_id).strip()
-    if not raw_id:
-        return False
     try:
-        val = int(raw_id.strip())
-        return val > 0
+        return int(str(raw_id).strip()) > 0
     except (ValueError, TypeError):
         return False
+
+
+def _compute_polarity_marbert(texts: List[str]) -> List[float]:
+    if _marbert_analyze is None:
+        logger.warning("MARBERT not available — using lexicon fallback")
+        return _compute_polarity_lexicon(texts)
+    try:
+        results = _marbert_analyze(texts)
+        sentiment_map = {"إيجابي": 1.0, "محايد": 0.5, "سلبي": 0.0}
+        return [sentiment_map.get(r.get("sentiment", "محايد"), 0.5) for r in results]
+    except Exception as e:
+        logger.warning("MARBERT inference failed (%s) — falling back to lexicon", e)
+        return _compute_polarity_lexicon(texts)
+
+
+def _compute_polarity_lexicon(texts: List[str]) -> List[float]:
+    positive_kw = [
+        "ممتاز", "رائع", "سريع", "شكرا", "ممنون", "مميز", "خدمة", "جيد",
+        "يستاهل", "احترافي", "نظيف", "ارخص", "افضل",
+        "excellent", "great", "fast", "good", "thanks",
+    ]
+    negative_kw = [
+        "سيء", "ردي", "احتيال", "غلط", "متأخر", "غالي", "مشكلة", "خطأ",
+        "تاخر", "ايقاف", "حادث", "رفض",
+        "bad", "fraud", "slow", "expensive", "problem", "late", "cancelled",
+    ]
+    scores = []
+    for text in texts:
+        t = str(text).lower()
+        pos = sum(1 for w in positive_kw if w in t)
+        neg = sum(1 for w in negative_kw if w in t)
+        if pos + neg == 0:
+            scores.append(0.5)
+        else:
+            scores.append(pos / (pos + neg))
+    return scores
 
 
 def run_social_collector(since: Optional[datetime] = None) -> pd.DataFrame:
@@ -279,11 +286,9 @@ def run_social_collector(since: Optional[datetime] = None) -> pd.DataFrame:
     raw_api_id = os.getenv("TELEGRAM_API_ID", "")
     raw_api_hash = os.getenv("TELEGRAM_API_HASH", "")
 
-    if not _is_valid_telegram_id(raw_api_id) or not raw_api_hash or raw_api_hash.strip() in ("", "YOUR_TELEGRAM_API_HASH_HERE"):
-        logger.warning(
-            "TELEGRAM_API_ID or TELEGRAM_API_HASH not set — "
-            "Telegram collection will be skipped."
-        )
+    placeholder_hashes = ("", "YOUR_TELEGRAM_API_HASH_HERE")
+    if not _is_valid_telegram_id(raw_api_id) or not raw_api_hash or raw_api_hash.strip() in placeholder_hashes:
+        logger.warning("Telegram credentials not set — Telegram collection skipped")
         telegram_api_id = 0
         telegram_api_hash = ""
     else:
@@ -317,7 +322,7 @@ def run_social_collector(since: Optional[datetime] = None) -> pd.DataFrame:
                     collect_telegram(since, telegram_api_id, telegram_api_hash)
                 )
             except Exception as exc:
-                logger.error("Telegram collection failed (no nest_asyncio): %s", exc)
+                logger.error("Telegram collection failed: %s", exc)
         except Exception as exc:
             logger.error("Telegram collection failed: %s", exc)
 
@@ -331,9 +336,7 @@ def run_social_collector(since: Optional[datetime] = None) -> pd.DataFrame:
 
     if not all_records:
         logger.warning("No social records collected — returning empty DataFrame")
-        return pd.DataFrame(columns=[
-            "platform", "channel_or_tag", "sector", "text", "date", "message_id"
-        ])
+        return pd.DataFrame(columns=["platform", "channel_or_tag", "sector", "text", "date", "message_id"])
 
     df = pd.DataFrame(all_records)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
@@ -349,21 +352,18 @@ def run_social_collector(since: Optional[datetime] = None) -> pd.DataFrame:
         combined = pd.concat([existing, df], ignore_index=True)
         combined = combined.drop_duplicates(subset=["platform", "message_id"], keep="last")
         combined.to_csv(OUTPUT_PATH, index=False, encoding="utf-8-sig")
-        logger.info("Appended %d new records — %d total in %s", len(df), len(combined), OUTPUT_PATH)
+        logger.info("Appended %d new — %d total in %s", len(df), len(combined), OUTPUT_PATH)
         return combined
-    else:
-        df.to_csv(OUTPUT_PATH, index=False, encoding="utf-8-sig")
-        logger.info("Saved %d records to %s", len(df), OUTPUT_PATH)
-        return df
+
+    df.to_csv(OUTPUT_PATH, index=False, encoding="utf-8-sig")
+    logger.info("Saved %d records to %s", len(df), OUTPUT_PATH)
+    return df
 
 
-# alias للتوافق مع الكود القديم
 collect_all = run_social_collector
 
 
-def aggregate_social_sentiment(
-    df: Optional[pd.DataFrame] = None,
-) -> pd.DataFrame:
+def aggregate_social_sentiment(df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     sample_path = os.path.join("data", "sample", "sample_social.csv")
     twitter_path = os.path.join("data", "sample", "twitter_sample.csv")
 
@@ -386,29 +386,9 @@ def aggregate_social_sentiment(
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date", "text"])
 
-    positive_kw = [
-        "ممتاز", "رائع", "سريع", "شكرا", "ممنون", "مميز", "خدمة", "جيد",
-        "يستاهل", "احترافي", "نظيف", "وقت", "ارخص", "افضل", "excellent",
-        "great", "fast", "good", "thanks",
-    ]
-    negative_kw = [
-        "سيء", "ردي", "احتيال", "غلط", "متأخر", "غالي", "مشكلة", "خطأ",
-        "لا يستاهل", "تاخر", "ايقاف", "حادث", "رفض", "bad", "fraud",
-        "slow", "expensive", "problem", "late", "cancelled",
-    ]
+    texts = df["text"].tolist()
+    df["polarity"] = _compute_polarity_marbert(texts)
 
-    def _polarity(text: str) -> float:
-        try:
-            t = str(text).lower()
-            pos = sum(1 for w in positive_kw if w in t)
-            neg = sum(1 for w in negative_kw if w in t)
-            if pos + neg == 0:
-                return 0.5
-            return pos / (pos + neg)
-        except Exception:
-            return 0.5
-
-    df["polarity"] = df["text"].apply(_polarity)
     df["month"] = df["date"].dt.to_period("M").dt.to_timestamp()
     agg = (
         df.groupby(["month", "sector"])
