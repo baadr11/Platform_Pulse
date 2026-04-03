@@ -99,51 +99,90 @@ $$N_{total} = 27{,}357{,}500 \times 66.4\% \approx \mathbf{18{,}165{,}000}$$
 - 175,000 عامل رسمي في قطاعَي النقل والتوصيل — GASTAT Q4-2023 (السجلات الإدارية)
 
 ---
-
 ## 🏗️ هيكل المشروع
 
 ```
 platform_pulse/
-├── src/
-│   ├── collectors/          # جمع البيانات من المصادر الخمسة
-│   │   ├── appstore_collector.py
-│   │   ├── trends_collector.py
-│   │   ├── spatial_collector.py
-│   │   ├── social_collector.py
-│   │   ├── official_collector.py
-│   │   └── run_all_collectors.py
-│   ├── processing/          # تنظيف وتوحيد البيانات
-│   │   ├── cleaner.py
-│   │   ├── normalizer.py
-│   │   └── validator.py
-│   ├── models/              # النماذج التحليلية
-│   │   ├── composite_index.py   # المؤشر المركّب (ElasticNet + IVW + Bootstrap CI)
-│   │   ├── sentiment_marbert.py # تحليل المشاعر العربية (CAMeL-BERT)
-│   │   ├── spatial_dbscan.py    # تجميع المدن (DBSCAN)
-│   │   ├── anomaly_detection.py # كشف الشذوذ (Isolation Forest)
-│   │   └── prophet_forecast.py  # التنبؤ الزمني (Prophet)
-│   ├── database/            # قاعدة البيانات
-│   │   ├── schema.py
-│   │   └── db_manager.py
-│   └── dashboard/           # لوحة التحكم التفاعلية
-│       ├── app.py
-│       └── components/
-│           ├── monthly_index.py    # المؤشر الشهري
-│           ├── sector_breakdown.py # التفصيل القطاعي
-│           ├── heatmap.py          # الخريطة الحرارية
-│           ├── forecast.py         # التنبؤات
-│           ├── gap_analysis.py     # فجوة الرصد
-│           └── social_pulse.py     # النبض الاجتماعي
+├── .streamlit/                          # إعدادات Streamlit
+│   ├── config.toml                      # ضبط الثيم والمنفذ والخادم
+│   └── secrets.toml.example             # مثال على الأسرار — يُنسخ إلى secrets.toml
+├── config/
+│   └── settings.yaml                    # إعدادات المشروع المركزية (مصادر البيانات، الأوزان، المسارات)
 ├── data/
-│   ├── sample/              # بيانات عينة توضيحية
-│   └── processed/           # بيانات معالجة
-├── tests/                   # 39 اختبار وحدة
-├── config/settings.yaml
-├── Dockerfile
-├── docker-compose.yml
-├── setup.sh
-└── run.sh
+│   ├── raw/                             # البيانات الخام المُجمَّعة من المصادر
+│   │   ├── reviews_raw.csv              # تقييمات التطبيقات الخام (Google Play + App Store)
+│   │   ├── reviews_frequency.csv        # تكرارات التقييمات الشهرية المُجمَّعة
+│   │   ├── trends_raw.csv               # بيانات Google Trends الخام
+│   │   ├── spatial_raw.csv              # بيانات OpenStreetMap الجغرافية الخام
+│   │   ├── social_raw.csv               # منشورات Telegram وTwitter الخام
+│   │   ├── string_session.txt           # جلسة Telegram النصية (مُولَّدة بـ generate_session.py)
+│   │   └── platform_pulse_session.session  # ملف جلسة Telethon الثنائي
+│   ├── processed/                       # البيانات بعد التنظيف والمعالجة والنمذجة
+│   │   ├── composite_index.csv          # المؤشر المركّب الشهري مع فترات الثقة
+│   │   ├── forecast_results.csv         # نتائج التنبؤ (Prophet) للأشهر القادمة
+│   │   ├── gap_analysis.csv             # تحليل فجوة الرصد بين التقدير والبيانات الرسمية
+│   │   └── sentiment_results.csv        # نتائج تحليل المشاعر العربية (MARBERT)
+│   └── sample/                          # بيانات عينة توضيحية للتشغيل دون إنترنت أو مفاتيح API
+│       ├── sample_reviews.csv           # عينة تقييمات التطبيقات
+│       ├── sample_trends.csv            # عينة بيانات Google Trends
+│       ├── sample_spatial.csv           # عينة بيانات OpenStreetMap
+│       ├── sample_social.csv            # عينة منشورات التواصل الاجتماعي
+│       ├── sample_official.csv          # عينة البيانات الرسمية (GASTAT/GOSI)
+│       └── twitter_sample.csv           # عينة تغريدات Twitter/X
+├── src/
+│   ├── __init__.py                      # تهيئة حزمة src
+│   ├── collectors/                      # جمع البيانات من المصادر الخمسة
+│   │   ├── __init__.py                  # تهيئة حزمة collectors
+│   │   ├── appstore_collector.py        # جمع تقييمات Google Play وApp Store
+│   │   ├── official_collector.py        # جمع بيانات GASTAT وGOSI الرسمية
+│   │   ├── retry_utils.py               # أدوات مساعدة لإعادة المحاولة والتحكم في الطلبات
+│   │   ├── run_all_collectors.py        # تشغيل جميع المجمّعات دفعةً واحدة
+│   │   ├── social_collector.py          # جمع بيانات Telegram وTwitter/X
+│   │   ├── spatial_collector.py         # جمع بيانات OpenStreetMap الجغرافية
+│   │   └── trends_collector.py          # جمع بيانات Google Trends
+│   ├── processing/                      # تنظيف وتوحيد البيانات
+│   │   ├── __init__.py                  # تهيئة حزمة processing
+│   │   ├── cleaner.py                   # إزالة التكرارات وتنظيف النصوص وتوحيد الترميز
+│   │   ├── normalizer.py                # توحيد التواريخ والقيم والمدن
+│   │   └── validator.py                 # التحقق من صحة البيانات وحدودها الجغرافية والزمنية
+│   ├── models/                          # النماذج التحليلية والذكاء الاصطناعي
+│   │   ├── __init__.py                  # تهيئة حزمة models
+│   │   ├── anomaly_detection.py         # كشف الشذوذ (Isolation Forest)
+│   │   ├── composite_index.py           # المؤشر المركّب (ElasticNet + IVW + Bootstrap CI)
+│   │   ├── prophet_forecast.py          # التنبؤ الزمني مع موسمية سعودية (Prophet)
+│   │   ├── sentiment_marbert.py         # تحليل المشاعر العربية (CAMeL-BERT / MARBERT)
+│   │   └── spatial_dbscan.py            # تجميع المدن جغرافياً (DBSCAN)
+│   ├── database/                        # قاعدة البيانات
+│   │   ├── __init__.py                  # تهيئة حزمة database
+│   │   ├── db_manager.py                # 
+│   │   └── schema.py                    # تعريف جداول قاعدة البيانات (SQLAlchemy ORM)
+│   └── dashboard/                       # لوحة التحكم التفاعلية (Streamlit)
+│       ├── __init__.py                  # تهيئة حزمة dashboard
+│       ├── app.py                       # نقطة الدخول الرئيسية للوحة
+│       ├── cloud_collector.py           # جمع البيانات السحابي داخل بيئة Streamlit Cloud
+│       └── components/                  # مكوّنات اللوحة المُعاد استخدامها
+│           ├── __init__.py              # تهيئة حزمة components
+│           ├── forecast.py              # مكوّن التنبؤات الزمنية بـ Prophet
+│           ├── gap_analysis.py          # مكوّن تحليل فجوة الرصد
+│           ├── heatmap.py               # مكوّن الخريطة الحرارية الجغرافية
+│           ├── monthly_index.py         # مكوّن المؤشر المركّب الشهري
+│           ├── sector_breakdown.py      # مكوّن التفصيل القطاعي (نقل / توصيل / مستقل)
+│           └── social_pulse.py          # مكوّن النبض الاجتماعي (مشاعر + كلمات مفتاحية)
+├── tests/                               # 39 اختبار وحدة
+│   ├── __init__.py                      # تهيئة حزمة tests
+│   ├── test_collectors.py               # اختبارات المجمّعات والاسترداد
+│   └── test_models.py                   # اختبارات النماذج التحليلية والمؤشر المركّب
+├── .dockerignore                        # ملفات وأدلة مستثناة من بناء صورة Docker
+├── .env.example                         # مثال على متغيرات البيئة — يُنسخ إلى .env
+├── docker-compose.yml                   # تعريف خدمات Docker Compose (لوحة + قاعدة بيانات)
+├── Dockerfile                           # تعليمات بناء صورة Docker للمشروع
+├── generate_session.py                  # أداة سطر الأوامر لتوليد جلسة Telegram (string_session)
+├── requirements.txt                     # مكتبات Python المطلوبة مع إصداراتها
+├── run.sh                               # سكريبت التشغيل الكامل (جمع + معالجة + نماذج + لوحة)
+├── run_models.py                        # تشغيل النماذج التحليلية منفردةً دون جمع البيانات
+└── setup.sh                             # سكريبت التثبيت الأولي (venv + مكتبات + إعداد)
 ```
+
 
 
 ---
