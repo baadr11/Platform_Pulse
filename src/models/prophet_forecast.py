@@ -82,7 +82,7 @@ def add_saudi_seasonality (model ):
 def validate_prophet_model (model ,horizon ="30 days",period ="90 days",initial ="180 days")->dict :
     try :
         from prophet .diagnostics import cross_validation ,performance_metrics 
-        df_cv =cross_validation (model ,initial =initial ,period =period ,horizon =horizon ,parallel ="processes")
+        df_cv =cross_validation (model ,initial =initial ,period =period ,horizon =horizon ,parallel =None)
         metrics =performance_metrics (df_cv )
         result ={
         "mape":round (float (metrics ["mape"].mean ()*100 ),2 ),
