@@ -266,7 +266,6 @@ def render_sidebar() -> dict:
 
 
 def main():
-    with st.spinner("جاري جمع البيانات الحية..."):
         collection_result = run_live_collection_cached()
 
     st.session_state["data_status"] = _get_data_status()
