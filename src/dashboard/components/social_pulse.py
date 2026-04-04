@@ -66,8 +66,6 @@ def _load_social_raw() -> Optional[pd.DataFrame]:
                 frames.append(df)
         except Exception:
             continue
-        if path == SOCIAL_RAW_PATH and frames:
-            break
     if not frames:
         return None
     combined = pd.concat(frames, ignore_index=True)
