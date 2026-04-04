@@ -41,6 +41,7 @@ def _apply_axes(fig):
     return fig
 
 
+@st.cache_data(ttl=3600)
 def _load_social_raw() -> Optional[pd.DataFrame]:
     frames = []
     for path in [SOCIAL_RAW_PATH, SOCIAL_SAMPLE_PATH, TWITTER_SAMPLE_PATH]:
@@ -66,6 +67,7 @@ def _load_social_raw() -> Optional[pd.DataFrame]:
     return combined.sort_values("date", ascending=False).reset_index(drop=True)
 
 
+@st.cache_data(ttl=3600)
 def _load_social_aggregated() -> Optional[pd.DataFrame]:
     try:
         from src.collectors.social_collector import aggregate_social_sentiment
@@ -75,6 +77,7 @@ def _load_social_aggregated() -> Optional[pd.DataFrame]:
         return None
 
 
+@st.cache_data(ttl=3600)
 def _load_composite_social() -> Optional[pd.DataFrame]:
     if not os.path.exists(COMPOSITE_PATH):
         return None
