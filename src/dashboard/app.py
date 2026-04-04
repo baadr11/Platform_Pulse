@@ -266,7 +266,7 @@ def render_sidebar() -> dict:
 
 
 def main():
-        collection_result = run_live_collection_cached()
+    collection_result = run_live_collection_cached()
 
     st.session_state["data_status"] = _get_data_status()
     is_sample = collection_result.get("source") == "sample"
