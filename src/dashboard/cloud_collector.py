@@ -1,7 +1,6 @@
 import os
 import time
 import logging
-from typing import Optional
 
 import pandas as pd
 import streamlit as st
@@ -9,35 +8,10 @@ import streamlit as st
 logger = logging.getLogger(__name__)
 
 
-def _secrets_or_env(key: str, default=""):
-    try:
-        return st.secrets.get(key, os.getenv(key, default))
-    except Exception:
-        return os.getenv(key, default)
-
-
 def _data_is_stale(path: str, max_age_hours: int = 6) -> bool:
     if not os.path.exists(path):
         return True
-    age = time.time() - os.path.getmtime(path)
-    return age > max_age_hours * 3600
-
-
-def run_pipeline_after_collection():
-    try:
-        from src.processing.cleaner import clean_reviews, clean_trends
-        from src.processing.normalizer import normalize_reviews, normalize_trends
-        from src.models.composite_index import compute_composite_index, compute_gap_analysis
-        clean_reviews()
-        clean_trends()
-        normalize_reviews()
-        normalize_trends()
-        compute_composite_index()
-        compute_gap_analysis()
-        return True
-    except Exception as e:
-        logger.error("run_pipeline_after_collection failed: %s", e)
-        return False
+    return (time.time() - os.path.getmtime(path)) > max_age_hours * 3600
 
 
 def _load_raw_or_sample(raw_path: str, sample_path: str) -> pd.DataFrame:
@@ -75,15 +49,13 @@ def run_live_collection_cached():
         if not df.empty:
             df.to_csv(raw_path, index=False, encoding="utf-8-sig")
 
-    success = run_pipeline_after_collection()
-    if success and os.path.exists(composite_path):
-        return {"status": "collected", "source": "sample+raw"}
-
-    from src.models.composite_index import compute_composite_index, compute_gap_analysis
     try:
+        from src.models.composite_index import compute_composite_index, compute_gap_analysis
         compute_composite_index()
         compute_gap_analysis()
+        if os.path.exists(composite_path):
+            return {"status": "collected", "source": "sample+raw"}
     except Exception as e:
-        logger.error("Fallback composite index failed: %s", e)
+        logger.error("compute_composite_index failed: %s", e)
 
     return {"status": "sample", "source": "sample"}
