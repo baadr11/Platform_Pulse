@@ -14,6 +14,31 @@ def _data_is_stale(path: str, max_age_hours: int = 6) -> bool:
     return (time.time() - os.path.getmtime(path)) > max_age_hours * 3600
 
 
+def _file_is_valid(path: str, min_rows: int = 10) -> bool:
+    try:
+        df = pd.read_csv(path, encoding="utf-8-sig")
+        return len(df) >= min_rows
+    except Exception:
+        return False
+
+
+def run_pipeline_after_collection():
+    try:
+        from src.processing.cleaner import clean_reviews, clean_trends
+        from src.processing.normalizer import normalize_reviews, normalize_trends
+        from src.models.composite_index import compute_composite_index, compute_gap_analysis
+        clean_reviews()
+        clean_trends()
+        normalize_reviews()
+        normalize_trends()
+        compute_composite_index()
+        compute_gap_analysis()
+        return True
+    except Exception as e:
+        logger.error("run_pipeline_after_collection failed: %s", e)
+        return False
+
+
 def _load_raw_or_sample(raw_path: str, sample_path: str) -> pd.DataFrame:
     for path in [raw_path, sample_path]:
         if os.path.exists(path):
@@ -34,7 +59,7 @@ def run_live_collection_cached():
 
     composite_path = os.path.join("data", "processed", "composite_index.csv")
 
-    if not _data_is_stale(composite_path, max_age_hours=6):
+    if _file_is_valid(composite_path, min_rows=10):
         return {"status": "fresh", "source": "live"}
 
     sources = {
@@ -49,13 +74,15 @@ def run_live_collection_cached():
         if not df.empty:
             df.to_csv(raw_path, index=False, encoding="utf-8-sig")
 
+    success = run_pipeline_after_collection()
+    if success and _file_is_valid(composite_path):
+        return {"status": "collected", "source": "sample+raw"}
+
+    from src.models.composite_index import compute_composite_index, compute_gap_analysis
     try:
-        from src.models.composite_index import compute_composite_index, compute_gap_analysis
         compute_composite_index()
         compute_gap_analysis()
-        if os.path.exists(composite_path):
-            return {"status": "collected", "source": "sample+raw"}
     except Exception as e:
-        logger.error("compute_composite_index failed: %s", e)
+        logger.error("Fallback composite index failed: %s", e)
 
     return {"status": "sample", "source": "sample"}
