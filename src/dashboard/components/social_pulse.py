@@ -10,10 +10,11 @@ import streamlit as st
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-SOCIAL_RAW_PATH = os.path.join("data", "raw", "social_raw.csv")
-SOCIAL_SAMPLE_PATH = os.path.join("data", "sample", "sample_social.csv")
-TWITTER_SAMPLE_PATH = os.path.join("data", "sample", "twitter_sample.csv")
-COMPOSITE_PATH = os.path.join("data", "processed", "composite_index.csv")
+SOCIAL_RAW_PATH     = os.path.join("data", "raw",       "social_raw.csv")
+SOCIAL_SAMPLE_PATH  = os.path.join("data", "sample",    "sample_social.csv")
+TWITTER_SAMPLE_PATH = os.path.join("data", "sample",    "twitter_sample.csv")
+COMPOSITE_PATH      = os.path.join("data", "processed", "composite_index.csv")
+SOCIAL_AGG_PATH     = os.path.join("data", "processed", "social_sentiment_agg.csv")
 
 _DARK_NO_AXES = dict(
     paper_bgcolor="rgba(0,0,0,0)",
@@ -69,12 +70,24 @@ def _load_social_raw() -> Optional[pd.DataFrame]:
 
 @st.cache_data(ttl=3600)
 def _load_social_aggregated() -> Optional[pd.DataFrame]:
+    if os.path.exists(SOCIAL_AGG_PATH):
+        try:
+            df = pd.read_csv(SOCIAL_AGG_PATH, encoding="utf-8-sig")
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            if not df.empty:
+                return df
+        except Exception:
+            pass
     try:
         from src.collectors.social_collector import aggregate_social_sentiment
         agg = aggregate_social_sentiment()
-        return agg if not agg.empty else None
+        if not agg.empty:
+            os.makedirs("data/processed", exist_ok=True)
+            agg.to_csv(SOCIAL_AGG_PATH, index=False, encoding="utf-8-sig")
+            return agg
     except Exception:
-        return None
+        pass
+    return None
 
 
 @st.cache_data(ttl=3600)
@@ -105,7 +118,7 @@ def _render_kpi_cards(raw_df: pd.DataFrame) -> None:
         pos_pct = 0
 
     top_platform = raw_df["platform"].value_counts().idxmax() if ("platform" in raw_df.columns and total > 0) else "—"
-    top_sector = raw_df["sector"].value_counts().idxmax() if ("sector" in raw_df.columns and total > 0) else "—"
+    top_sector   = raw_df["sector"].value_counts().idxmax()   if ("sector"   in raw_df.columns and total > 0) else "—"
 
     s = "border-radius:14px; padding:20px 16px; direction:rtl; color:white; border:1px solid rgba(255,255,255,0.07); margin-bottom:4px;"
     c1, c2, c3, c4 = st.columns(4)
@@ -188,7 +201,7 @@ def render_social_pulse(filters: dict) -> None:
         if raw_df["date"].dt.tz is not None:
             raw_df["date"] = raw_df["date"].dt.tz_convert(None)
         date_from = filters.get("date_from")
-        date_to = filters.get("date_to")
+        date_to   = filters.get("date_to")
         if date_from is not None or date_to is not None:
             filtered_date = raw_df.copy()
             if date_from is not None:
