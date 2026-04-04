@@ -78,7 +78,8 @@ def _load_social_raw() -> Optional[pd.DataFrame]:
 
 @st.cache_data(ttl=3600)
 def _aggregate_from_df(df_json: str) -> pd.DataFrame:
-    df = pd.read_json(df_json, orient="records")
+    from io import StringIO
+    df = pd.read_json(StringIO(df_json), orient="records")
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date", "text"])
     df["polarity"] = df["text"].apply(_polarity)
